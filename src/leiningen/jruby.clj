@@ -92,9 +92,10 @@
 
 (defn- set-path
   [task gem-dir]
-  (let [envvar (new Environment$Variable)]
-    (.setKey envvar "PATH") 
-    (.setValue envvar (str gem-dir "/bin"))
+  (let [envvar (new Environment$Variable)
+        existing-path (System/getenv "PATH")]
+    (.setKey envvar "PATH")
+    (.setValue envvar (str gem-dir "/bin" ":" existing-path))
     (.addEnv task envvar)))
 
 (defn- jruby-exec
