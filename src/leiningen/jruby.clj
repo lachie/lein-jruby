@@ -2,8 +2,7 @@
   (:use [clojure.java.io :only (file)])
   (:require [lancet.core :as lancet]
             [leiningen.classpath :as classpath]
-            [clojure.string :as str]
-            [clojure.contrib.logging :as logger])
+            [clojure.string :as str])
   (:import [org.jruby Main]
            [org.apache.tools.ant.types Path]
            [org.apache.tools.ant.types Environment$Variable]
@@ -101,7 +100,7 @@
 (defn- jruby-exec
   [project & keys]
   (let [task (create-jruby-task project keys)]
-    (logger/debug (str "jruby exec" keys))
+    (println (str "jruby exec" keys))
 
     ; this may not be a good idea, but can't find another way to get the rubygems bin picked up
     ; another option might be to put it on the classpath. kind of a pain to do that and I'm lazy
@@ -117,7 +116,7 @@
   (let [task (create-jruby-task project keys)
         bundler-path (bundler-gem-path project)] 
 
-    (logger/debug (str "bundle exec" keys))
+    (println (str "bundle exec" keys))
 
     ; this may not be a good idea, but can't find another way to get the rubygems bin picked up
     ; another option might be to put it on the classpath. kind of a pain to do that and I'm lazy
