@@ -1,4 +1,4 @@
-(defproject lachie/lein-jruby "0.1.1-SNAPSHOT"
+(defproject lachie/lein-jruby "0.2.0-SNAPSHOT"
   :description "Run JRuby commands from Leiningen."
   :dependencies [[org.jruby/jruby-complete "1.6.7"]
                  ; [org.clojure/java.classpath "0.1.0"]
