@@ -32,13 +32,13 @@
 (def bundler-binstubs-path (str gem-dir "/binstubs"))
 
 
-; TODO implement
 (defn- source-path
   [project]
-  full-jruby-dir (file (:root project) "src"))
+  (:jruby-source-path project "src/jruby"))
 
 
-; here an ant task is set up to call jruby
+; here an ant task is set up to call jruby in a subprocess.
+; This allows us to manipulate environment variables such as GEM_HOME and PATH
 (defn- task-props [project] {:classname "org.jruby.Main"})
 
 
@@ -46,26 +46,26 @@
 
 
 (defn- create-jruby-task
-  [project keys]
-  ; TODO use source-path
-  (let [full-jruby-dir (file (:root project) "src")
-        url-classpath (seq (.getURLs (java.lang.ClassLoader/getSystemClassLoader)))
+  [project args & {:keys [cwd]}]
+  (let [url-classpath (seq (.getURLs (java.lang.ClassLoader/getSystemClassLoader)))
         classpath (str/join java.io.File/pathSeparatorChar (map #(.getPath %) url-classpath))
         task (doto (lancet/instantiate-task lancet/ant-project "java"
                                               (task-props project))
                   (.setClasspath (Path. lancet/ant-project classpath)))]
 
-      (.setValue (.createArg task) (format "--%s" (:mode (opts project))))
+    ; copy args into the task
+    (doseq [arg args] (.setValue (.createArg task) arg))
 
-      (doseq [k keys] (.setValue (.createArg task) k))
+    (.setFailonerror task false)
 
-      (.setFailonerror task false)
-      (.setFork task (not (= "irb" (second keys))))
+    ; fork, unless irb
+    (.setFork task (not (= "irb" (first args))))
 
-      ; TODO pass in CWD
-      ; i still don't get how it picks up the Gemfile and Rakefile with this set.. ?
-      (if (.exists full-jruby-dir) (.setDir task full-jruby-dir))
-      task))
+    ; set cwd if we have it
+    (when-let [cwd-file (file cwd)] 
+      (.setDir task cwd-file))
+
+    task))
 
 
 (defn- set-env-var
@@ -76,16 +76,6 @@
     (.addEnv task envvar)))
 
 
-(defn- set-gem-path
-  [task gem-path]
-  (set-env-var task "GEM_PATH" gem-path))
-
-
-(defn- set-gem-home
-  [task gem-home]
-  (set-env-var task "GEM_HOME" gem-home))
-
-
 (defn- prepend-path
   [task paths]
   (let [existing-path (System/getenv "PATH")
@@ -94,27 +84,28 @@
 
 
 (defn- process-args
-  [project lumpy-args]
-  (into-array String (flatten lumpy-args)))
+  [project lumpy-args & {:keys [cwd] :as options}]
+  (let [include-arg (when cwd (format "-I%s" cwd))
+        mode-arg (format "--%s" (:mode (opts project)))]
+    ; XXX set --rubygems?
+
+  (into-array String (flatten [include-arg mode-arg lumpy-args]))))
 
 
 (defn- jruby-exec
   [project & lumpy-args]
-  (let [args (process-args project lumpy-args)
-        task (create-jruby-task project args)
+  (let [source-path (source-path project)
+        full-source-path (.getAbsolutePath (file source-path))
+        args (process-args project lumpy-args :cwd full-source-path)
+        task (create-jruby-task project args :cwd full-source-path)
         root (:root project)]
 
-    (prn "jruby " lumpy-args)
-
-    ; TODO implement
-    ; -I
-    ;(.setValue (.createArg task) (format "-I%s" (.getAbsolutePath full-jruby-dir)))
-    ;(.setValue (.createArg task) "-rubygems")
+    (println "exec: jruby" (str/join " " (seq args)))
 
     (prepend-path task [(str root "/" rubygems-bin-path) (str root "/" bundler-binstubs-path)])
 
-    (set-gem-home task (str root "/" rubygems-gem-path))
-    (set-gem-path task (str root "/" rubygems-gem-path))
+    (set-env-var task "GEM_PATH" (str root "/" rubygems-gem-path))
+    (set-env-var task "GEM_HOME" (str root "/" rubygems-gem-path))
 
     (.execute task)))
 
