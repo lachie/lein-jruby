@@ -2,8 +2,9 @@
   (:use [clojure.java.io :only (file)])
   (:require [lancet.core :as lancet]
             [leiningen.classpath :as classpath]
+            [leiningen.core.eval :as ev]
             [clojure.string :as str])
-  (:import [org.jruby Main]
+  (:import [org.jruby Main RubyInstanceConfig]
            [org.apache.tools.ant.types Path]
            [org.apache.tools.ant.types Environment$Variable]
            [org.apache.tools.ant ExitException]))
@@ -47,16 +48,20 @@
 
 (defn- create-jruby-task
   [project args & {:keys [cwd]}]
+
   (let [url-classpath (seq (.getURLs (java.lang.ClassLoader/getSystemClassLoader)))
-        classpath (str/join java.io.File/pathSeparatorChar (map #(.getPath %) url-classpath))
+        cp (str/join java.io.File/pathSeparatorChar (map #(.getPath %) url-classpath))
         task (doto (lancet/instantiate-task lancet/ant-project "java"
                                               (task-props project))
-                  (.setClasspath (Path. lancet/ant-project classpath)))]
+                  (.setClasspath (Path. lancet/ant-project (classpath/get-classpath-string project))))]
+
+    ;(prn "cp" cp)
+    ;(prn "pcp" (classpath/get-classpath-string project))
 
     ; copy args into the task
     (doseq [arg args] (.setValue (.createArg task) arg))
 
-    (.setFailonerror task false)
+    (.setFailonerror task true)
 
     ; fork, unless irb
     (.setFork task (not (= "irb" (first args))))
@@ -86,10 +91,11 @@
 (defn- process-args
   [project lumpy-args & {:keys [cwd] :as options}]
   (let [include-arg (when cwd (format "-I%s" cwd))
-        mode-arg (format "--%s" (:mode (opts project)))]
+        mode-arg (format "--%s" (:mode (opts project)))
+        classpath-arg (str "-J-cp" (classpath/get-classpath-string project))]
     ; XXX set --rubygems?
 
-  (into-array String (flatten [include-arg mode-arg lumpy-args]))))
+  (into-array String (flatten [classpath-arg include-arg mode-arg lumpy-args]))))
 
 
 (defn- jruby-exec
@@ -125,14 +131,18 @@
   (ensure-gem-dir project)
   (let [[gem version] (cond (string? gemspec) [gemspec nil]
                             :else gemspec)
-        version-string (when version (format "-v'%s'" version))]
+        version-string (when version (format "-v%s" version))]
   (jruby-exec project "-S" "maybe_install_gems" gem version-string)))
 
 
 (defn- ensure-bundler
   [project]
   (ensure-gem-dir project)
+  ; jruby-openssl is often required for bundler, but won't install using this method
+  ; install it by hand first.
+  ; (ensure-gem project "jruby-openssl")
   (ensure-gem project ["bundler" (:bundler-version (opts project))]))
+
 
 
 (defn- rake
@@ -145,7 +155,7 @@
   [project args]
   (ensure-bundler project)
   (if (or (empty? args) (= (first args) "install"))
-    (jruby-exec project "-S" "bundle" "install" "--path" bundler-gem-path "--binstubs" bundler-binstubs-path)
+    (jruby-exec project "-ropenssl" "-S" "bundle" "install" "--path" bundler-gem-path "--binstubs" bundler-binstubs-path)
     (jruby-exec project "-S" "bundle" args)))
 
 
@@ -158,12 +168,16 @@
 (defn jruby
   "Run a JRuby command"
   [project & args]
-  (case (first args)
-    "rake" (rake project (rest args))
-    "bundle" (bundle project (rest args))
-    "irb" (jruby-exec project project "-S" args)
-    "gem" (gem project (rest args))
-    "-S" (jruby-exec project args)
-    "-v" (jruby-exec project args)
-    "-e" (jruby-exec project args)
-    (jruby-exec project args)))
+  ; TODO eval-in-project
+  ; TODO add jruby to project dependencies
+  (prn "foo")
+  (ev/eval-in-project project
+    (case (first args)
+      "rake" (rake project (rest args))
+      "bundle" (bundle project (rest args))
+      "irb" (jruby-exec project project "-S" args)
+      "gem" (gem project (rest args))
+      "-S" (jruby-exec project args)
+      "-v" (jruby-exec project args)
+      "-e" (jruby-exec project args)
+      (jruby-exec project args))))
